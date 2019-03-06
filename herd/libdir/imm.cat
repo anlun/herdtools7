@@ -1,0 +1,60 @@
+(*
+ * The Intermediate Memory Model (IMM) from Podkopaev-al:POPL19.
+ *
+ * Authors: Anton Podkopaev <podkoav239@gmail.com>, Ori Lahav <orilahav@tau.ac.il>, and Viktor Vafeiadis <viktor@mpi-sws.org>
+ *)
+"IMM"
+
+(*
+ * Include the cos.cat file shipped with herd.
+ * This builds the co relation as a total order over writes to the same
+ * location and then consequently defines the fr relation using co and
+ * rf.
+ *)
+include "cos.cat"
+
+(* (\*
+ *  * Include aarch64fences.cat so that barriers show up in generated diagrams.
+ *  *\)
+ * include "aarch64fences.cat"
+ * 
+ * let dmb.full = DMB.ISH | DMB.OSH | DMB.SY | dsb.full
+ * let dmb.ld = DMB.ISHLD | DMB.OSHLD | DMB.LD | dsb.ld
+ * let dmb.st = DMB.ISHST | DMB.OSHST | DMB.ST | dsb.st *)
+
+let rs = [W]; (sb & loc)?; [W & (RLX | REL | ACQ_REL | ACQ | SC)]; (rf; rmw)*
+let sw = [(REL | ACQ_REL | SC)]; ([F]; sb)?; rs; rf; [R & (RLX | ACQ | ACQ_REL | SC)]; (sb; [F])?; [(ACQ | ACQ_REL | SC)]
+let hb = (sb | sw)+
+
+let eco = (rf | co | fr)+
+
+(* Barrier-ordered-before *)
+let bob = po ; [W & REL]
+        | [R & ACQ] ; po
+        | po ; [F]
+        | [F] ; po
+        | [W & REL] ; (po & loc) ; [W]
+
+let edeps = data
+          | ctrl
+          | addr; po?
+          | [R_ex]; po
+
+let ppo = [R] ; (edeps | rfi)+ ; [W]
+let psc = [F & SC] ; hb ; eco ; hb ; [F & SC]
+
+let ar = rfe
+       | bob
+       | ppo
+       | detour
+       | psc
+       | [W_strong]; po ; [W]
+
+(* External visibility requirement *)
+irreflexive ar as no-thin-air
+
+(* Coherence requirement *)
+irreflexive hb; eco? as coherence
+
+(* Atomic: Basic RMW constraint to forbid intervening writes. *)
+empty rmw & (fre; coe) as atomic
